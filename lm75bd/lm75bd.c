@@ -29,7 +29,6 @@ error_code_t readTempLM75BD(uint8_t devAddr, float *temp) {
   /* Implement this driver function */
 
   if (temp == NULL) {
-  	LOG_ERROR_CODE(ERR_CODE_INVALID_ARG);
 	return ERR_CODE_INVALID_ARG;
   }
 
@@ -37,14 +36,14 @@ error_code_t readTempLM75BD(uint8_t devAddr, float *temp) {
   uint8_t pointer = 0x00;
   error_code_t errCode;
 
-  RETURN_IF_ERROR_CODE(i2cSendTo(devAddr, &pointer, 1));
-  RETURN_IF_ERROR_CODE(i2cReceiveFrom(devAddr, buff, 2));
+  RETURN_IF_ERROR_CODE(i2cSendTo(devAddr, &pointer, sizeof(pointer)));
+  RETURN_IF_ERROR_CODE(i2cReceiveFrom(devAddr, buff, sizeof(buff)));
 
   int16_t tempRaw = (buff[0] << 8) | buff[1];
 
-  tempRaw = tempRaw >> 7;
+  tempRaw = tempRaw >> 5;
 
-  *temp = tempRaw * 0.5;
+  *temp = tempRaw * 0.125;
 
   return ERR_CODE_SUCCESS;
 }
