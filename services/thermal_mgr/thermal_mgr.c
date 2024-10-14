@@ -9,6 +9,8 @@
 
 #include <string.h>
 
+#include "logging.h"
+
 #define THERMAL_MGR_STACK_SIZE 256U
 
 static TaskHandle_t thermalMgrTaskHandle;
@@ -43,11 +45,13 @@ void initThermalSystemManager(lm75bd_config_t *config) {
 
 error_code_t thermalMgrSendEvent(thermal_mgr_event_t *event) {
   /* Send an event to the thermal manager queue */
-  if (xQueueSend(thermalMgrQueueHandle, event, portMAX_DELAY) == pdPASS) {
-  	return ERR_CODE_SUCCESS;
+  
+  if (event == NULL) {
+	return ERR_CODE_INVALID_ARG;
   }
-  else {
-  	return ERR_CODE_QUEUE_FULL;
+
+  if (xQueueSend(thermalMgrQueueHandle, event, 0) != pdPASS) {
+	return ERR_CODE_QUEUE_FULL;
   }
 
   return ERR_CODE_SUCCESS;
@@ -56,38 +60,46 @@ error_code_t thermalMgrSendEvent(thermal_mgr_event_t *event) {
 void osHandlerLM75BD(void) {
   /* Implement this function */
   thermal_mgr_event_t tempEvent;
-  tempEvent.type = THERMAL_MGR_EVENT_MEASURE_TEMP_CMD;
+  tempEvent.type = THERMAL_MGR_EVENT_OS_INTERRUPT;
 
-
-  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-
-  xQueueSendFromISR(thermalMgrQueueHandle, &tempEvent, &xHigherPriorityTaskWoken);
-
-  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+  thermalMgrSendEvent(&tempEvent);
 }
 
 static void thermalMgr(void *pvParameters) {
   /* Implement this task */
   lm75bd_config_t config = *(lm75bd_config_t *) pvParameters;
-  thermal_mgr_event_t event;
-  float currentTemp;
-
+  
   while (1) {
-  	if (xQueueReceive(thermalMgrQueueHandle, &event, portMAX_DELAY) == pdPASS) {
+  	thermal_mgr_event_t event;
+  	error_code_t errCode;
+
+	  if (xQueueReceive(thermalMgrQueueHandle, &event, portMAX_DELAY) == pdPASS) {
 		if (event.type == THERMAL_MGR_EVENT_MEASURE_TEMP_CMD) {
-			readTempLM75BD(config.devAddr, &currentTemp);
+			float currentTemp = 0.0f;
+			LOG_IF_ERROR_CODE(readTempLM75BD(config.devAddr, &currentTemp));
 			
+			if (errCode == ERR_CODE_SUCCESS) 
+			{
+				addTemperatureTelemetry(currentTemp);
+			}
+		} 
+
+		else if (event.type == THERMAL_MGR_EVENT_OS_INTERRUPT) {
+			float currentTemp = 0.0f;
+			
+			LOG_IF_ERROR_CODE(readTempLM75BD(config.devAddr, &currentTemp));
+
 			if (currentTemp > 80.0) {
 				overTemperatureDetected();
-			}
-
-			else if (currentTemp < 75.0) {
+			} else if (currentTemp < 75.0) {
 				safeOperatingConditions();
 			}
 
 			addTemperatureTelemetry(currentTemp);
-	
-		} 
+		}
+		else {
+			LOG_IF_ERROR_CODE(ERR_CODE_INVALID_EVENT_RECEIVED);
+		}
 	}
   }
 }
